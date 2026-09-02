@@ -23,9 +23,9 @@ import xgboost as xgb
 
 def load_data():
     """Load train and test data"""
-    train = pd.read_csv('train.csv')
-    test = pd.read_csv('test.csv')
-    sample_submission = pd.read_csv('sample_submission.csv')
+    train = pd.read_csv('train')
+    test = pd.read_csv('test')
+    sample_submission = pd.read_csv('sample_submission')
     
     return train, test, sample_submission
 
