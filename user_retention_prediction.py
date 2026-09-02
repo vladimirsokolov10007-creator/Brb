@@ -39,8 +39,14 @@ def explore_data(train, test):
     print(f"\nData types:\n{train.dtypes}")
     print(f"\nMissing values:\n{train.isnull().sum()}")
     print(f"\nBasic statistics:\n{train.describe()}")
-    print(f"\nTarget distribution:\n{train['is_returned'].value_counts()}")
-    print(f"Target proportions:\n{train['is_returned'].value_counts(normalize=True)}")
+    
+    # Check column names
+    print(f"\nColumn names: {train.columns.tolist()}")
+    
+    # Target column
+    target_col = 'retention' if 'retention' in train.columns else 'is_returned'
+    print(f"Target distribution:\n{train[target_col].value_counts()}")
+    print(f"Target proportions:\n{train[target_col].value_counts(normalize=True)}")
     
     print("\n" + "=" * 80)
     print("TEST DATA INFO")
@@ -48,27 +54,28 @@ def explore_data(train, test):
     print(f"Shape: {test.shape}")
     print(f"\nFirst rows:\n{test.head()}")
     
-    return train, test
+    return train, test, target_col
 
 # ============================================================================
 # 2. ПРЕДОБРАБОТКА И ОЧИСТКА ДАННЫХ
 # ============================================================================
 
-def detect_and_handle_anomalies(train, test):
+def detect_and_handle_anomalies(train, test, target_col):
     """Detect and handle anomalies and outliers"""
     
     # Identify numeric columns (excluding target and ID)
     numeric_cols = train.select_dtypes(include=[np.number]).columns.tolist()
-    if 'is_returned' in numeric_cols:
-        numeric_cols.remove('is_returned')
-    if 'user_id' in numeric_cols:
-        numeric_cols.remove('user_id')
+    if target_col in numeric_cols:
+        numeric_cols.remove(target_col)
+    if 'id' in numeric_cols:
+        numeric_cols.remove('id')
     
     print("\n" + "=" * 80)
     print("ANOMALY DETECTION")
     print("=" * 80)
     
     # Check for extreme values (using IQR method)
+    anomaly_count = 0
     for col in numeric_cols:
         Q1 = train[col].quantile(0.25)
         Q3 = train[col].quantile(0.75)
@@ -78,9 +85,13 @@ def detect_and_handle_anomalies(train, test):
         
         anomalies = train[(train[col] < lower_bound) | (train[col] > upper_bound)]
         if len(anomalies) > 0:
+            anomaly_count += 1
             print(f"\n{col}: Found {len(anomalies)} anomalies")
             print(f"  Expected range: [{lower_bound:.2f}, {upper_bound:.2f}]")
             print(f"  Anomaly range: [{anomalies[col].min():.2f}, {anomalies[col].max():.2f}]")
+    
+    if anomaly_count == 0:
+        print("No extreme anomalies detected using IQR method (3*IQR threshold)")
     
     return numeric_cols
 
@@ -96,12 +107,17 @@ def preprocess_data(train, test, numeric_cols):
     test_processed = test.copy()
     
     # Fill NaN with median for numeric columns
+    missing_found = False
     for col in numeric_cols:
         if train_processed[col].isnull().sum() > 0:
             median_val = train_processed[col].median()
             train_processed[col].fillna(median_val, inplace=True)
             test_processed[col].fillna(median_val, inplace=True)
             print(f"Filled {col} missing values with median: {median_val:.2f}")
+            missing_found = True
+    
+    if not missing_found:
+        print("No missing values found in numeric columns")
     
     return train_processed, test_processed
 
@@ -131,12 +147,6 @@ def create_engineered_features(train, test, numeric_cols):
             
             # Polynomial features for key metrics
             df[f'{col}_squared'] = df[col] ** 2
-            
-            # Interaction terms (if multiple numeric features exist)
-            if len(numeric_cols) > 1:
-                for col2 in numeric_cols:
-                    if col < col2:
-                        df[f'{col}_x_{col2}'] = df[col] * df[col2]
     
     # Get all engineered features
     engineered_cols = [col for col in train_eng.columns if col not in train.columns]
@@ -206,7 +216,8 @@ def train_advanced_models(X_train, X_val, y_train, y_val):
             max_depth=5,
             random_state=42,
             use_label_encoder=False,
-            eval_metric='logloss'
+            eval_metric='logloss',
+            verbosity=0
         ),
     }
     
@@ -244,8 +255,8 @@ def generate_submission(test_ids, predictions, output_path='submission.csv'):
     """Generate submission file"""
     
     submission = pd.DataFrame({
-        'user_id': test_ids,
-        'is_returned': predictions
+        'id': test_ids,
+        'retention': predictions
     })
     
     submission.to_csv(output_path, index=False)
@@ -274,10 +285,10 @@ def main():
     train, test, sample_submission = load_data()
     
     # 2. Explore data
-    train, test = explore_data(train, test)
+    train, test, target_col = explore_data(train, test)
     
     # 3. Detect anomalies
-    numeric_cols = detect_and_handle_anomalies(train, test)
+    numeric_cols = detect_and_handle_anomalies(train, test, target_col)
     
     # 4. Preprocess data
     train, test = preprocess_data(train, test, numeric_cols)
@@ -286,10 +297,10 @@ def main():
     train, test, engineered_cols = create_engineered_features(train, test, numeric_cols)
     
     # 6. Prepare features and target
-    X = train.drop(['is_returned', 'user_id'], axis=1)
-    y = train['is_returned']
-    X_test = test.drop('user_id', axis=1)
-    test_ids = test['user_id']
+    X = train.drop([target_col, 'id'], axis=1)
+    y = train[target_col]
+    X_test = test.drop('id', axis=1)
+    test_ids = test['id']
     
     # Align columns
     X_test = X_test[X.columns]
