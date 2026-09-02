@@ -226,6 +226,13 @@ def create_calibrated_ensemble(X_train, X_val, y_train, y_val, models, config):
         ]
     )
     
+    # Fit ensemble first
+    ensemble.fit(X_train, y_train)
+    ensemble_pred_before = ensemble.predict_proba(X_val)[:, 1]
+    ensemble_auc_before = roc_auc_score(y_val, ensemble_pred_before)
+    
+    print(f"Ensemble ROC-AUC (before calibration): {ensemble_auc_before:.4f}")
+    
     # Calibrate ensemble
     calibrator = CalibratedClassifierCV(
         ensemble,
@@ -238,7 +245,6 @@ def create_calibrated_ensemble(X_train, X_val, y_train, y_val, models, config):
     ensemble_pred = calibrator.predict_proba(X_val)[:, 1]
     ensemble_auc = roc_auc_score(y_val, ensemble_pred)
     
-    print(f"Ensemble ROC-AUC (before calibration): {roc_auc_score(y_val, ensemble.predict_proba(X_val)[:, 1]):.4f}")
     print(f"Ensemble ROC-AUC (after calibration): {ensemble_auc:.4f}")
     
     return calibrator
@@ -330,7 +336,7 @@ def main():
         print("=" * 80)
         
         # Get current ROC-AUC from user
-        print(f"\nPредыдущая версия: submission_v{version-1}.csv" if version > 1 else "\nПервая версия")
+        print(f"\nПредыдущая версия: submission_v{version-1}.csv" if version > 1 else "\nПервая версия")
         current_auc = float(input("\nВведите текущий ROC-AUC результат (0-1): "))
         
         # Validate input
